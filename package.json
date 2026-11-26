@@ -1,0 +1,52 @@
+{
+  "name": "@wmfs/tymly-address-picker",
+  "description": "Tymly gazetteer address picker for the cardscript Input.Address element, as a Quasar component",
+  "version": "0.0.0-semantically-released",
+  "author": "West Midlands Fire Service",
+  "keywords": [
+    "tymly",
+    "cardscript",
+    "vue",
+    "quasar",
+    "address",
+    "gazetteer"
+  ],
+  "main": "lib/AddressPicker.vue",
+  "dependencies": {
+    "@wmfs/quasar-map-mapbox": "1.33.0",
+    "lodash.template": "4.18.1"
+  },
+  "peerDependencies": {
+    "quasar": "^2.0.0",
+    "vue": "^3.2.33"
+  },
+  "devDependencies": {
+    "@semantic-release/changelog": "7.0.0",
+    "@semantic-release/git": "11.0.1",
+    "@semantic-release/release-notes-generator": "14.1.0",
+    "conventional-changelog-conventionalcommits": "8.0.0",
+    "cz-conventional-changelog": "3.3.0",
+    "semantic-release": "25.0.9"
+  },
+  "scripts": {
+    "lint": "echo Lint with the app's eslint config, sorry",
+    "test": "echo No Tests, sorry",
+    "semantic-release": "semantic-release"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wmfs/tymly-address-picker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wmfs/tymly-address-picker/issues"
+  },
+  "config": {
+    "commitizen": {
+      "path": "cz-conventional-changelog"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
