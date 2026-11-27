@@ -950,15 +950,20 @@ export default {
         console.log('Address picker selection endpoint failed', endpoint.name, err)
       }
     },
+    // Back to the search. If nothing has been searched yet (e.g. a prefilled card),
+    // search for the current UPRN so it shows ticked, with the text selected so typing replaces it.
     changeAddress () {
       this.changing = true
-      if (!this.hasSearched && this.selected && this.selected.postcode) {
-        this.query = this.selected.postcode
+      if (!this.hasSearched && this.selected && this.selected.uprn) {
+        this.query = String(this.selected.uprn)
         this.search(1)
       }
       this.$nextTick(() => {
         const input = document.getElementById(this.inputId(this.config.id))
-        if (input) input.focus()
+        if (input) {
+          input.focus()
+          input.select()
+        }
       })
     },
     enterManually () {
