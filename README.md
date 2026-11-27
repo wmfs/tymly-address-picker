@@ -43,6 +43,7 @@ Then use `Input.Address` in a card template. `@wmfs/cardscript-to-quasar` render
 | `validation` | | `v$.data` from vuelidate |
 | `invalidFields` | | Fields that failed on submit, with messages |
 | `execute` | | `async ({ stateMachineName, input, sendResponse }) => ({ status, ctx })`. Defaults to `this.$tymly.executions.execute` (TymlySDK from `@wmfs/tymly-cardscript-sdk`) |
+| `mapboxAccessToken` | | For the still map of the chosen address. Defaults to `process.env.MAPBOX_ACCESS_TOKEN`, as `@wmfs/quasar-map-mapbox` uses |
 
 ### Events
 
@@ -53,7 +54,7 @@ Then use `Input.Address` in a card template. `@wmfs/cardscript-to-quasar` render
 All optional, see the `Input.Address` definition in `@wmfs/cardscript-schema`:
 `idPrefix`, `title`, `subtitle`, `placeholder`, `searchEndpoint` (default `wmfs_addressPickerSearch_1_0`),
 `detailsEndpoint` (default `wmfs_addressPickerDetails_1_0`, `false` to turn off),
-`searchFields`, `resultsPerPage`, `tooManyResults`, `searchAsYouType`, `allowGeoLocation`, `showMap`,
+`searchFields`, `resultsPerPage`, `tooManyResults`, `searchAsYouType`, `allowGeoLocation`, `showMap`, `markerClick` (`confirm` or `select`), `markerActionLabel`,
 `allowManualEntry`, `manualEntryTitle`, `manualEntryNotice`, `manualEntryFields`, `onSelectionEndpoint`, `validation`.
 
 ### Data written (prefixed with `idPrefix_` when set)
@@ -73,6 +74,7 @@ The search endpoint is given `{ filter, page, limit, fields?, useGeoLocation?, $
 Once an address is chosen, the details endpoint is given `{ uprn }` and should return
 `{ found, maskingNumber, classification: { code, title, path }, status, hierarchy: { parentUprn, parentAddressLabel, siblingCount, childrenCount } }`.
 The picker keeps them in `selectedAddress.details` and shows them as on the gazetteer property card.
+If they fail or take longer than 15 seconds, it says they aren't available, with a link to try again.
 
 Each result's tag shows `dataSourceLabel` (no tag when it's empty). `temporary` results get the highlighted tag.
 `wmfs_addressPickerSearch_1_0` fills these from the gazetteer `data_source`, with labels from
