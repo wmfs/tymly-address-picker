@@ -74,7 +74,7 @@
             :aria-invalid="fieldError(field.id) ? 'true' : 'false'"
             :aria-describedby="describedBy(field)"
             @input="e => update({ [field.id]: e.target.value || null })"
-            @blur="touch(field.id)"
+            @blur="onFieldBlur(field)"
           >
         </div>
 
@@ -153,22 +153,23 @@
 
       <div class="tap__selected-body q-mt-md">
         <div
-          v-if="config.showMap && selectedHasPoint"
-          class="tap__map tap__map--small"
+          v-if="config.showMap && selectedHasPoint && staticMapUrl && !staticMapFailed"
+          class="tap__map tap__map--small tap__static-frame"
         >
-          <q-map
-            :key="`selected-${selected.uprn}`"
-            :locked="true"
+          <span
+            v-if="!staticMapLoaded"
+            class="tap__static-loading"
+            aria-hidden="true"
+          >Loading map…</span>
+          <img
+            :key="staticMapUrl"
+            :src="staticMapUrl"
+            :alt="`Map showing ${selected.line || selected.label}`"
+            class="tap__static-map"
+            :class="{ 'tap__static-map--loaded': staticMapLoaded }"
+            @load="staticMapLoaded = true"
+            @error="staticMapFailed = true"
           >
-            <q-map-circle
-              format="LatLon"
-              :latitude="selected.latitude"
-              :longitude="selected.longitude"
-              :showMarker="true"
-              :locked="true"
-              :label="selected.line || selected.label"
-            />
-          </q-map>
         </div>
         <dl class="tap__summary">
           <div>
@@ -220,6 +221,20 @@
               role="status"
             >Loading property details…</dd>
           </div>
+          <div v-else-if="!details && detailsUnavailable === selected.uprn">
+            <dt class="sr-only">Details</dt>
+            <dd
+              class="tap__muted tap__small"
+              role="status"
+            >
+              Property details aren't available right now.
+              <a
+                href="#"
+                class="tap__link"
+                @click.prevent="loadDetails(selected, { retry: true })"
+              >Try again</a>
+            </dd>
+          </div>
         </dl>
       </div>
     </div>
@@ -235,8 +250,9 @@
         no-caps
         unelevated
         :loading="locating"
-        label="Use my current location"
-        @click="searchNearMe"
+        :label="nearMe ? 'Stop using my location' : 'Use my current location'"
+        :aria-pressed="nearMe ? 'true' : 'false'"
+        @click="toggleNearMe"
       />
 
       <div
@@ -284,7 +300,7 @@
       </div>
 
       <div
-        v-if="!isPhone && (config.allowGeoLocation || config.allowManualEntry) && !hasSearched"
+        v-if="!isPhone && (config.allowGeoLocation || (config.allowManualEntry && !hasSearched))"
         class="tap__row q-mt-md"
       >
         <q-btn
@@ -293,11 +309,12 @@
           no-caps
           unelevated
           :loading="locating"
-          label="Use my current location"
-          @click="searchNearMe"
+          :label="nearMe ? 'Stop using my location' : 'Use my current location'"
+          :aria-pressed="nearMe ? 'true' : 'false'"
+          @click="toggleNearMe"
         />
         <a
-          v-if="config.allowManualEntry"
+          v-if="config.allowManualEntry && !hasSearched"
           href="#"
           class="tap__link"
           @click.prevent="enterManually"
@@ -323,7 +340,7 @@
           no-caps
           unelevated
           label="Try again"
-          @click="search(page)"
+          @click="goToPage(page)"
         />
       </div>
 
@@ -334,7 +351,7 @@
         role="status"
       >
         <b>More than {{ config.tooManyResults }} addresses match "{{ lastQuery }}"</b>
-        <div>Add more of the address, for example a full postcode, a street name or a house number.</div>
+        <div>Add more of the address, for example a full postcode, a street name or a building number.</div>
       </div>
 
       <!-- No matches -->
@@ -348,12 +365,17 @@
       </div>
 
       <!-- Results -->
-      <template v-else-if="results.length > 0">
+      <div
+        v-else-if="results.length > 0"
+        class="tap__results"
+        :class="{ 'tap__results--busy': searching }"
+        :aria-busy="searching ? 'true' : 'false'"
+      >
         <div class="tap__row tap__results-head q-mt-md">
           <p
             class="tap__count"
             role="status"
-          >{{ resultsSummary }}</p>
+          >{{ searching ? 'Searching…' : resultsSummary }}</p>
           <a
             v-if="config.showMap && resultsWithPoints.length > 0"
             href="#"
@@ -363,6 +385,10 @@
           >{{ showResultsMap ? 'Hide map' : 'Show on map' }}</a>
         </div>
 
+        <p
+          v-if="showResultsMap"
+          class="tap__muted tap__small q-mt-sm q-mb-none"
+        >{{ mapHint }}</p>
         <div
           v-if="showResultsMap"
           class="tap__map q-mt-sm"
@@ -380,7 +406,17 @@
               :longitude="r.longitude"
               :showMarker="true"
               :locked="true"
-              :label="r.line || r.label"
+              v-bind="markerProps(r)"
+            />
+            <q-map-circle
+              v-if="nearMe && nearMePosition"
+              format="LatLon"
+              :latitude="nearMePosition.lat"
+              :longitude="nearMePosition.lng"
+              :showMarker="true"
+              :locked="true"
+              color="#d4351c"
+              label="You are here"
             />
           </q-map>
         </div>
@@ -421,7 +457,7 @@
           v-if="totalPages > 1"
           class="tap__row q-mt-sm"
         >
-          <span class="tap__muted tap__small">Showing {{ firstShown }} to {{ lastShown }} of {{ totalHits }}. Or add a house number to narrow it down.</span>
+          <span class="tap__muted tap__small">Showing {{ firstShown }} to {{ lastShown }} of {{ totalHits }}. Or add a building number to narrow it down.</span>
           <q-pagination
             :model-value="page"
             class="tap__pagination"
@@ -430,10 +466,10 @@
             direction-links
             boundary-links
             :disable="searching"
-            @update:model-value="p => search(p)"
+            @update:model-value="goToPage"
           />
         </div>
-      </template>
+      </div>
 
       <div
         v-if="config.allowManualEntry && (hasSearched || isPhone)"
@@ -469,7 +505,9 @@ export default {
     model: { type: Object, required: true },
     validation: { type: Object, default: null },
     invalidFields: { type: Object, default: null },
-    execute: { type: Function, default: null }
+    execute: { type: Function, default: null },
+    // Defaults to process.env.MAPBOX_ACCESS_TOKEN, as @wmfs/quasar-map-mapbox uses
+    mapboxAccessToken: { type: String, default: null }
   },
   emits: ['update'],
   data () {
@@ -484,6 +522,7 @@ export default {
       totalPages: 0,
       page: 1,
       nearMe: false,
+      nearMePosition: null,
       showResultsMap: false,
       changing: false,
       locating: false,
@@ -491,7 +530,10 @@ export default {
       manualMapKey: 0,
       typingTimer: null,
       searchCount: 0,
-      loadingDetails: false
+      loadingDetails: false,
+      detailsUnavailable: null,
+      staticMapFailed: false,
+      staticMapLoaded: false
     }
   },
   computed: {
@@ -523,6 +565,25 @@ export default {
     },
     status () {
       return (this.details && this.details.status) || (this.selected && this.selected.status) || null
+    },
+    // Still image for the chosen address: lighter than a live map, and it's what the design shows
+    staticMapUrl () {
+      if (!this.selectedHasPoint) return null
+      const token = this.mapboxAccessToken || mapboxToken()
+      if (!token) return null
+      const { latitude, longitude } = this.selected
+      const at = `${longitude},${latitude}`
+      return `https://api.mapbox.com/styles/v1/mapbox/streets-v11/static/pin-l+1d70b8(${at})/${at},16,0/600x340@2x?access_token=${encodeURIComponent(token)}`
+    },
+    mapHint () {
+      const shown = this.resultsWithPoints.length
+      const onPage = this.totalHits > shown
+        ? `The map shows the ${shown} address${shown === 1 ? '' : 'es'} on this page. `
+        : ''
+      const action = this.config.markerClick === 'select'
+        ? 'Select a marker to choose that address.'
+        : 'Select a marker to see the address.'
+      return onPage + action
     },
     selectedHasPoint () {
       return this.selected && isNumber(this.selected.latitude) && isNumber(this.selected.longitude)
@@ -578,6 +639,8 @@ export default {
     // Drafts and prefilled cards may have an address without details yet
     'selected.uprn': {
       handler () {
+        this.staticMapFailed = false
+        this.staticMapLoaded = false
         if (this.selected && !this.details) this.loadDetails(this.selected)
       },
       immediate: true
@@ -595,8 +658,28 @@ export default {
       if (this.$tymly && this.$tymly.executions) return this.$tymly.executions.execute(options)
       throw new Error('Address picker needs an execute prop or this.$tymly (TymlySDK)')
     },
+    // markerClick 'select': clicking the marker chooses the address.
+    // 'confirm' (default): it shows the address with a button to choose it.
+    markerProps (result) {
+      if (this.config.markerClick === 'select') {
+        return { onClick: () => this.choose(result) }
+      }
+      return {
+        label: [result.line || result.label, result.locality],
+        popupActionLabel: this.config.markerActionLabel || 'Choose this address',
+        onPopupAction: () => this.choose(result)
+      }
+    },
     update (patch) {
       this.$emit('update', patch)
+    },
+    onFieldBlur (field) {
+      if (field.postcode) {
+        const value = this.model[field.id]
+        const formatted = formatPostcode(value)
+        if (formatted !== value) this.update({ [field.id]: formatted })
+      }
+      this.touch(field.id)
     },
     touch (id) {
       const v = this.validation && this.validation[id]
@@ -605,11 +688,17 @@ export default {
     fieldError (id) {
       const v = this.validation && this.validation[id]
       if (!v || !v.$error) return null
-      const invalid = this.invalidFields && this.invalidFields[id]
-      if (invalid && Array.isArray(invalid.messages) && invalid.messages.length) return invalid.messages.join(' ')
       const field = this.config.manualEntryFields.find(f => f.id === id)
-      if (v.postcode && v.postcode.$invalid) return 'Enter a real postcode'
-      return field ? (field.message || `Enter ${field.title.toLowerCase()}`) : 'Check this field'
+      if (!field) {
+        const invalid = this.invalidFields && this.invalidFields[id]
+        return invalid && Array.isArray(invalid.messages) && invalid.messages.length ? invalid.messages.join(' ') : 'Check this field'
+      }
+      const failed = name => v[name] && v[name].$invalid
+      if ((failed('required') || failed('requiredIf')) && !this.model[id]) {
+        return field.message || `Enter ${field.title.toLowerCase()}`
+      }
+      if (failed('postcode')) return field.invalidMessage || 'Enter a real postcode, like B23 6BN'
+      return field.message || `Check ${field.title.toLowerCase()}`
     },
     describedBy (field) {
       return [
@@ -638,6 +727,7 @@ export default {
       this.searching = true
       this.searchFailed = false
       this.nearMe = nearMe
+      if (nearMe && position) this.nearMePosition = position
 
       const input = {
         filter: query,
@@ -697,6 +787,37 @@ export default {
       this.query = ''
       await this.search(1, { nearMe: true, position })
     },
+    toggleNearMe () {
+      if (this.nearMe) return this.stopNearMe()
+      return this.searchNearMe()
+    },
+    // Back to an empty search, ready to type an address
+    stopNearMe () {
+      this.searchCount++
+      this.searching = false
+      this.nearMe = false
+      this.nearMePosition = null
+      this.hasSearched = false
+      this.searchFailed = false
+      this.results = []
+      this.totalHits = 0
+      this.totalPages = 0
+      this.page = 1
+      this.lastQuery = ''
+      this.showResultsMap = false
+      this.$nextTick(() => {
+        const input = document.getElementById(this.inputId(this.config.id))
+        if (input) input.focus()
+      })
+    },
+    // Pages and "Try again" stay in the current mode (near you, or the typed search)
+    goToPage (page) {
+      if (this.nearMe && this.nearMePosition) {
+        return this.search(page, { nearMe: true, position: this.nearMePosition })
+      }
+      if (!this.query.trim() && this.lastQuery) this.query = this.lastQuery
+      return this.search(page)
+    },
     async pinMyLocation () {
       const position = await this.getPosition()
       if (!position) return
@@ -717,27 +838,35 @@ export default {
         this.runSelectionEndpoint(result)
       ])
     },
-    async loadDetails (address) {
+    async loadDetails (address, { retry = false } = {}) {
       const endpoint = this.config.detailsEndpoint
       if (!endpoint || !address || this.loadingDetails === address.uprn) return
+      if (!retry && this.detailsUnavailable === address.uprn) return
 
       this.loadingDetails = address.uprn
+      this.detailsUnavailable = null
+      let available = false
       try {
-        const res = await this.runExecution({
+        const res = await withTimeout(this.runExecution({
           stateMachineName: endpoint,
           input: { uprn: address.uprn },
           sendResponse: 'COMPLETE'
-        })
-        const details = res.status === 'SUCCEEDED' && res.ctx && res.ctx.found !== false
-          ? {
-              maskingNumber: res.ctx.maskingNumber || null,
-              classification: res.ctx.classification || null,
-              status: res.ctx.status || null,
-              hierarchy: res.ctx.hierarchy || null
-            }
-          : null
+        }), DETAILS_TIMEOUT_MS)
+
+        if (res.status !== 'SUCCEEDED' || !res.ctx) throw new Error(`Details ended with status ${res.status}`)
+        available = true
+
+        // found: false means the gazetteer has nothing more to show, which isn't an error
+        if (res.ctx.found === false) return
+
+        const details = {
+          maskingNumber: res.ctx.maskingNumber || null,
+          classification: res.ctx.classification || null,
+          status: res.ctx.status || null,
+          hierarchy: res.ctx.hierarchy || null
+        }
         // Only keep them if the user hasn't picked something else meanwhile
-        if (details && String(this.model[this.keys.uprn]) === String(address.uprn)) {
+        if (String(this.model[this.keys.uprn]) === String(address.uprn)) {
           const current = this.model[this.keys.selectedAddress] || address
           this.update({ [this.keys.selectedAddress]: { ...current, details } })
         }
@@ -745,6 +874,7 @@ export default {
         console.log('Address picker could not load property details', endpoint, err)
       } finally {
         if (this.loadingDetails === address.uprn) this.loadingDetails = false
+        if (!available) this.detailsUnavailable = address.uprn
       }
     },
     async runSelectionEndpoint (result) {
@@ -795,6 +925,36 @@ export default {
     backToSearch () {
       this.update({ [this.keys.cannotFindAddress]: false })
     }
+  }
+}
+
+const DETAILS_TIMEOUT_MS = 15000
+
+// "b23  6bn" -> "B23 6BN". Anything that isn't postcode-shaped is left in capitals for validation to flag.
+function formatPostcode (value) {
+  if (typeof value !== 'string') return value
+  const compact = value.replace(/\s+/g, '').toUpperCase()
+  if (!compact) return null
+  return /^[A-Z]{1,2}[0-9][A-Z0-9]?[0-9][A-Z]{2}$/.test(compact)
+    ? `${compact.slice(0, -3)} ${compact.slice(-3)}`
+    : compact
+}
+
+function withTimeout (promise, ms) {
+  let timer
+  return Promise.race([
+    promise,
+    new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`No answer after ${ms / 1000} seconds`)), ms)
+    })
+  ]).finally(() => clearTimeout(timer))
+}
+
+function mapboxToken () {
+  try {
+    return process.env.MAPBOX_ACCESS_TOKEN || null
+  } catch {
+    return null
   }
 }
 
@@ -966,6 +1126,26 @@ function normalise (s) {
 .tap__dd-sub { display: block; color: var(--tap-ink-3); font-size: 13px; }
 
 .tap__map { border-radius: 10px; overflow: hidden; }
+/* Keeps the map's space while the image loads (600 x 340) */
+.tap__static-frame {
+  position: relative;
+  aspect-ratio: 600 / 340;
+  background: var(--tap-neutral-soft);
+  border: 1px solid var(--tap-line);
+  border-radius: 10px;
+}
+.tap__static-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--tap-ink-2);
+  font-size: 13px;
+}
+.tap__static-map { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 0.2s; }
+.tap__static-map--loaded { opacity: 1; }
+.tap__results { transition: opacity 0.15s; }
+.tap__results--busy { opacity: 0.5; pointer-events: none; }
 .tap__map :deep(.q-card) { margin-bottom: 0; }
 
 .tap__pagination { margin-left: auto; }
