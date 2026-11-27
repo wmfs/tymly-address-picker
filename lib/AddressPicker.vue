@@ -911,7 +911,12 @@ export default {
         // Only keep them if the user hasn't picked something else meanwhile
         if (String(this.model[this.keys.uprn]) === String(address.uprn)) {
           const current = this.model[this.keys.selectedAddress] || address
-          this.update({ [this.keys.selectedAddress]: { ...current, details } })
+          // A prefilled card may only have the UPRN and label: fill in the rest
+          // (position, data source, address lines) from the gazetteer, keeping what's already known
+          const fromGazetteer = res.ctx.address || {}
+          this.update({
+            [this.keys.selectedAddress]: { ...fromGazetteer, ...withoutEmpty(current), details }
+          })
         }
       } catch (err) {
         console.log('Address picker could not load property details', endpoint, err)
@@ -1006,6 +1011,10 @@ function getCurrentPosition (options) {
     if (typeof navigator === 'undefined' || !navigator.geolocation) return reject(new Error('Geolocation is not supported'))
     navigator.geolocation.getCurrentPosition(resolve, reject, options)
   })
+}
+
+function withoutEmpty (obj) {
+  return Object.fromEntries(Object.entries(obj || {}).filter(([, v]) => v !== null && v !== undefined && v !== ''))
 }
 
 function isNumber (v) {
