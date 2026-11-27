@@ -85,43 +85,74 @@
           <div class="tap__label">
             Location <span class="tap__optional">(optional)</span>
           </div>
-          <p class="tap__hint">Drag the pin to the property, or use your current location.</p>
-          <div class="tap__map">
-            <q-map
-              :key="`manual-${manualMapKey}`"
-              :locked="false"
-              :draggable="true"
-              :centre-latitude="manualPin.latitude"
-              :centre-longitude="manualPin.longitude"
-            >
-              <q-map-circle
-                format="LatLon"
-                :latitude="manualPin.latitude"
-                :longitude="manualPin.longitude"
-                :showMarker="true"
-                label="Property"
-                @latitude="v => update({ [keys.latitude]: v })"
-                @longitude="v => update({ [keys.longitude]: v })"
+
+          <!-- No pin yet: nothing is saved until the user chooses to add one -->
+          <template v-if="!hasManualPin">
+            <p class="tap__hint">Add a pin to show where the property is.</p>
+            <div class="tap__row">
+              <q-btn
+                class="tap__quiet-btn"
+                no-caps
+                unelevated
+                label="Add a pin on the map"
+                @click="addPin"
               />
-            </q-map>
-          </div>
-          <div
-            v-if="config.allowGeoLocation"
-            class="tap__row q-mt-sm"
-          >
-            <q-btn
-              class="tap__quiet-btn"
-              no-caps
-              unelevated
-              :loading="locating"
-              label="Use my current location"
-              @click="pinMyLocation"
-            />
-            <span
-              v-if="hasManualPin"
-              class="tap__muted"
-            >Pin at {{ formatCoord(model[keys.latitude]) }}, {{ formatCoord(model[keys.longitude]) }}</span>
-          </div>
+              <q-btn
+                v-if="config.allowGeoLocation"
+                class="tap__quiet-btn"
+                no-caps
+                unelevated
+                :loading="locating"
+                label="Use my current location"
+                @click="pinMyLocation"
+              />
+            </div>
+          </template>
+
+          <!-- Pin added: drag it, move it to your location, or remove it -->
+          <template v-else>
+            <p class="tap__hint">Drag the pin to the property.</p>
+            <div class="tap__map">
+              <q-map
+                :key="`manual-${manualMapKey}`"
+                :locked="false"
+                :draggable="true"
+                :centre-latitude="manualPin.latitude"
+                :centre-longitude="manualPin.longitude"
+              >
+                <q-map-circle
+                  format="LatLon"
+                  :latitude="manualPin.latitude"
+                  :longitude="manualPin.longitude"
+                  :showMarker="true"
+                  label="Property"
+                  @latitude="v => update({ [keys.latitude]: v })"
+                  @longitude="v => update({ [keys.longitude]: v })"
+                />
+              </q-map>
+            </div>
+            <div class="tap__row q-mt-sm">
+              <span
+                class="tap__muted"
+                role="status"
+              >Pin at {{ formatCoord(model[keys.latitude]) }}, {{ formatCoord(model[keys.longitude]) }}</span>
+              <q-btn
+                v-if="config.allowGeoLocation"
+                class="tap__quiet-btn"
+                no-caps
+                unelevated
+                :loading="locating"
+                label="Move pin to my location"
+                @click="pinMyLocation"
+              />
+              <a
+                href="#"
+                class="tap__link"
+                @click.prevent="removePin"
+              >Remove pin</a>
+            </div>
+          </template>
+
           <p
             v-if="locationError"
             class="tap__warning q-mt-sm"
@@ -817,6 +848,18 @@ export default {
       }
       if (!this.query.trim() && this.lastQuery) this.query = this.lastQuery
       return this.search(page)
+    },
+    // Drops the pin where the map would centre (your location if known, otherwise the West Midlands)
+    // so the user can drag it to the property
+    addPin () {
+      const { latitude, longitude } = this.manualPin
+      this.locationError = null
+      this.update({ [this.keys.latitude]: latitude, [this.keys.longitude]: longitude })
+      this.manualMapKey++
+    },
+    removePin () {
+      this.locationError = null
+      this.update({ [this.keys.latitude]: null, [this.keys.longitude]: null })
     },
     async pinMyLocation () {
       const position = await this.getPosition()
